@@ -231,16 +231,16 @@
                             </div>
 
                             <!-- Video Overlay Placeholder (When no video selected) -->
-                            <div id="video-placeholder" class="absolute inset-0 flex flex-col items-center justify-center p-6 bg-slate-900/95 z-20 transition-all duration-300">
-                                <div class="w-20 h-20 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-6 shadow-lg shadow-black/20">
+                            <div id="video-placeholder" class="absolute inset-0 flex flex-col items-center justify-center p-4 md:p-6 bg-slate-900/95 z-20 transition-all duration-300">
+                                <div class="hidden md:flex w-20 h-20 rounded-3xl bg-slate-900 border border-slate-800 items-center justify-center text-slate-400 mb-6 shadow-lg shadow-black/20">
                                     <i data-lucide="clapperboard" class="w-10 h-10"></i>
                                 </div>
-                                <h3 class="text-xl font-bold text-white mb-2">No Video Selected</h3>
-                                <p class="text-slate-400 text-sm text-center max-w-sm mb-6">
+                                <h3 class="text-lg md:text-xl font-bold text-white mb-2">No Video Selected</h3>
+                                <p class="hidden md:block text-slate-400 text-sm text-center max-w-sm mb-6">
                                     Please select a local video file. Other participants must also load the exact same file to synchronize playback.
                                 </p>
                                 <button onclick="document.getElementById('input-video-file').click()" 
-                                        class="flex items-center gap-2 py-3 px-6 bg-white hover:bg-slate-100 text-slate-900 font-bold rounded-2xl transition-all shadow-md shadow-white/5">
+                                        class="flex items-center gap-2 py-2 md:py-3 px-4 md:px-6 bg-white hover:bg-slate-100 text-slate-900 font-bold rounded-xl md:rounded-2xl transition-all shadow-md shadow-white/5 text-xs md:text-sm">
                                     <i data-lucide="upload-cloud" class="w-4 h-4"></i>
                                     Select Local Video File
                                 </button>
