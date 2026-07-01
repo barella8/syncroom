@@ -171,3 +171,74 @@ aside#room-sidebar.collapsed {
     transform-origin: center center !important;
 }
 
+/* Mobile controls override on video container tap */
+.group.show-controls #custom-controls {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* Mobile Screen Responsive Adaptations */
+@media (max-width: 768px) {
+    /* Stack screen content vertically */
+    #screen-room > div.flex-1 {
+        flex-direction: column !important;
+        overflow-y: auto !important;
+    }
+    
+    #screen-room main {
+        padding: 0.75rem !important;
+        flex-grow: 1 !important;
+        overflow: visible !important;
+    }
+    
+    #player-wrapper-size {
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    
+    /* Make the Room Sidebar a slide-over overlay drawer */
+    #room-sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        height: 100% !important;
+        width: 80% !important;
+        max-width: 320px !important;
+        z-index: 50 !important;
+        box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3) !important;
+        transform: translateX(0) !important;
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    
+    #room-sidebar.collapsed {
+        transform: translateX(100%) !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        border-left-width: 0px !important;
+    }
+
+    /* Shrink and compact the header row */
+    header {
+        padding: 0.5rem 0.75rem !important;
+        gap: 0.25rem !important;
+    }
+    
+    header h1 {
+        display: none !important;
+    }
+    
+    /* Compact Room Code display block */
+    header div[class*="pl-4"] {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        max-width: 140px !important;
+        font-size: 0.75rem !important;
+    }
+    header span[class*="uppercase"] {
+        display: none !important;
+    }
+}
+
