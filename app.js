@@ -18,6 +18,8 @@ let state = {
     isSyncing: false,        // Flag to prevent event feedback loops during programmatic updates
     hostPlaying: false,
     hostTime: 0,
+    hostDuration: 0,
+    lastStreamTime: 0,
     hostFileName: '',
     hostPlaybackRate: 1.0,
     syncTimer: null,         // Timer for broadcasting sync state from Host
@@ -706,16 +708,30 @@ function setupVideoControlsListeners() {
 
     // Update progress bar as video plays
     video.addEventListener('timeupdate', () => {
-        if (video.duration) {
-            const percentage = (video.currentTime / video.duration) * 100;
+        let curTime = video.currentTime;
+        const isStreaming = !!video.srcObject;
+        const dur = isStreaming ? state.hostDuration : video.duration;
+
+        if (isStreaming) {
+            curTime = state.hostTime + (video.currentTime - state.lastStreamTime);
+            if (curTime < 0) curTime = 0;
+            if (dur && curTime > dur) curTime = dur;
+        }
+
+        if (dur) {
+            const percentage = (curTime / dur) * 100;
             elements.controlSeekbar.value = percentage;
             elements.seekbarProgress.style.width = `${percentage}%`;
-            elements.timeCurrent.textContent = formatTime(video.currentTime);
+            elements.timeCurrent.textContent = formatTime(curTime);
+            elements.timeDuration.textContent = formatTime(dur);
         }
     });
 
     video.addEventListener('durationchange', () => {
-        elements.timeDuration.textContent = formatTime(video.duration);
+        const dur = video.srcObject ? state.hostDuration : video.duration;
+        if (dur) {
+            elements.timeDuration.textContent = formatTime(dur);
+        }
     });
 
     // Buffering indicator
@@ -729,20 +745,34 @@ function setupVideoControlsListeners() {
 
     // Seek bar manual change
     elements.controlSeekbar.addEventListener('input', () => {
-        if (!state.isVideoLoaded || !video.duration) return;
+        if (!state.isVideoLoaded) return;
+        const isStreaming = !!video.srcObject;
+        const dur = isStreaming ? state.hostDuration : video.duration;
+        if (!dur) return;
+
         if (state.role === 'guest' && !state.isCoControl) {
             // Revert slider value since guest cannot control
-            const percentage = (video.currentTime / video.duration) * 100;
+            const curTime = isStreaming 
+                ? state.hostTime + (video.currentTime - state.lastStreamTime)
+                : video.currentTime;
+            const percentage = (curTime / dur) * 100;
             elements.controlSeekbar.value = percentage;
             elements.seekbarProgress.style.width = `${percentage}%`;
             showToast('Playback seeking is controlled by the Host.', 'warning');
             return;
         }
 
-        const newTime = (elements.controlSeekbar.value / 100) * video.duration;
+        const newTime = (elements.controlSeekbar.value / 100) * dur;
         state.isSyncing = false; // allow seek command broadcast
-        video.currentTime = newTime;
-        audio.currentTime = newTime;
+        
+        if (isStreaming) {
+            if (state.role === 'guest' && state.isCoControl) {
+                sendSyncCommandToHost('seek', newTime);
+            }
+        } else {
+            video.currentTime = newTime;
+            audio.currentTime = newTime;
+        }
     });
 
     // Volume controls
@@ -870,14 +900,25 @@ function handleSubtitleFileSelect(e) {
 
     const reader = new FileReader();
     reader.onload = function(evt) {
-        let content = evt.target.result;
+        const arrayBuffer = evt.target.result;
+        let content = '';
+
+        // Try decoding as UTF-8 first (fatal mode throws if invalid chars are present)
+        try {
+            const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+            content = utf8Decoder.decode(arrayBuffer);
+        } catch (err) {
+            console.warn('UTF-8 decoding failed, falling back to windows-1254 (Turkish) encoding.');
+            const trDecoder = new TextDecoder('windows-1254');
+            content = trDecoder.decode(arrayBuffer);
+        }
         
         // Convert SRT to VTT if necessary
         if (file.name.endsWith('.srt')) {
             content = srtToVtt(content);
         }
 
-        const blob = new Blob([content], { type: 'text/vtt' });
+        const blob = new Blob([content], { type: 'text/vtt;charset=utf-8' });
         const url = URL.createObjectURL(blob);
 
         // Remove old track
@@ -888,14 +929,14 @@ function handleSubtitleFileSelect(e) {
         const track = document.createElement('track');
         track.kind = 'subtitles';
         track.label = file.name;
-        track.srclang = 'en';
+        track.srclang = 'tr';
         track.src = url;
         track.default = true;
         
         elements.mainVideo.appendChild(track);
         showToast('Subtitles loaded successfully.', 'success');
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
 }
 
 // Clear subtitles track
@@ -1063,6 +1104,7 @@ function setupHostConnectionListener() {
                     playbackRate: elements.mainVideo.playbackRate,
                     hostUsername: state.username,
                     hostFileName: state.hostFileName,
+                    hostDuration: elements.mainVideo.duration || 0,
                     isCoControl: state.isCoControl,
                     users: state.roomUsers
                 }
@@ -1259,6 +1301,8 @@ function handleIncomingDataFromHost(data) {
         state.hostPlaying = data.state.playing;
         state.hostTime = data.state.time;
         state.hostPlaybackRate = data.state.playbackRate || 1.0;
+        state.hostDuration = data.state.hostDuration || 0;
+        state.lastStreamTime = elements.mainVideo.currentTime;
 
         updateUserListUI();
         updateGuestControlsUI();
@@ -1313,6 +1357,10 @@ function handleIncomingDataFromHost(data) {
         state.hostPlaying = data.playing;
         state.hostTime = data.time;
         state.hostPlaybackRate = data.rate || 1.0;
+        if (data.duration !== undefined) {
+            state.hostDuration = data.duration;
+        }
+        state.lastStreamTime = elements.mainVideo.currentTime;
         checkDrift();
     }
     else if (data.type === 'stream_error') {
@@ -1521,7 +1569,8 @@ function startHostSyncTimer() {
                 type: 'ping',
                 time: time,
                 playing: playing,
-                rate: rate
+                rate: rate,
+                duration: elements.mainVideo.duration || 0
             });
         });
     }, 3000);
