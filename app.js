@@ -137,6 +137,10 @@ window.addEventListener('DOMContentLoaded', () => {
     checkUrlQueryParams();
 });
 
+window.addEventListener('beforeunload', () => {
+    leaveRoom();
+});
+
 function checkUrlQueryParams() {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
@@ -634,6 +638,11 @@ function setupVideoControlsListeners() {
 
     // Clicking the video element also triggers play/pause toggles
     video.addEventListener('click', () => {
+        const container = video.parentElement;
+        if (container) {
+            container.classList.toggle('show-controls');
+        }
+
         if (!state.isVideoLoaded) return;
         if (state.role === 'guest' && !state.isCoControl) {
             showToast('Playback is controlled by the Host.', 'warning');
@@ -1084,6 +1093,9 @@ function handleIncomingDataFromGuest(conn, data) {
     const senderName = sender ? sender.username : 'Guest';
 
     if (data.type === 'chat') {
+        if (sender && sender.isMuted) {
+            return;
+        }
         broadcastChatMessage(senderName, data.text);
         addChatMessage(senderName, data.text);
     } 
@@ -1309,6 +1321,22 @@ function handleIncomingDataFromHost(data) {
         elements.btnStreamFromHost.innerHTML = `<i data-lucide="tv" class="w-4 h-4"></i> Stream Video from Host`;
         if (window.lucide) {
             window.lucide.createIcons({ attrs: { class: 'w-4 h-4' } });
+        }
+    }
+    else if (data.type === 'kick') {
+        showToast('You have been kicked from the room by the Host.', 'error');
+        leaveRoom();
+    }
+    else if (data.type === 'mute') {
+        state.isMuted = data.muted;
+        if (state.isMuted) {
+            elements.inputChatMessage.placeholder = 'You have been muted by Host...';
+            elements.inputChatMessage.disabled = true;
+            showToast('You have been muted by the Host.', 'warning');
+        } else {
+            elements.inputChatMessage.placeholder = 'Type a message...';
+            elements.inputChatMessage.disabled = false;
+            showToast('You have been unmuted by the Host.', 'info');
         }
     }
 }
@@ -1537,10 +1565,18 @@ function updateUserListUI() {
                 </div>
                 <div class="min-w-0">
                     <span class="text-xs font-semibold text-slate-800 dark:text-slate-200 block truncate">${user.username}</span>
-                    <span class="text-[10px] text-slate-500 block truncate">${isHost ? 'Host' : 'Viewer'}</span>
+                    <span class="text-[10px] text-slate-500 block truncate">${isHost ? 'Host' : 'Viewer'}${user.isMuted ? ' (Muted)' : ''}</span>
                 </div>
             </div>
             <div class="flex items-center gap-1.5 flex-shrink-0">
+                ${state.role === 'host' && !isMe ? `
+                    <button onclick="toggleMuteUser('${user.id}')" title="${user.isMuted ? 'Unmute' : 'Mute'}" class="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 hover:text-indigo-600 transition-colors">
+                        <i data-lucide="${user.isMuted ? 'message-square' : 'message-square-off'}" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button onclick="kickUser('${user.id}')" title="Kick User" class="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg text-slate-500 hover:text-rose-600 transition-colors">
+                        <i data-lucide="user-x" class="w-3.5 h-3.5"></i>
+                    </button>
+                ` : ''}
                 ${isHost ? '<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-350 dark:border-slate-700 text-[8px] font-bold uppercase tracking-wider">Host</span>' : ''}
                 ${isMe ? '<span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 text-[8px] font-bold uppercase tracking-wider">You</span>' : ''}
             </div>
@@ -1548,6 +1584,10 @@ function updateUserListUI() {
 
         elements.userListContainer.appendChild(item);
     });
+
+    if (window.lucide) {
+        window.lucide.createIcons({ attrs: { class: 'w-3.5 h-3.5' } });
+    }
 }
 
 // --- LEAVE / DISCONNECT ---
@@ -1765,3 +1805,40 @@ function handleCoControlToggle() {
     addSystemChatMessage(state.isCoControl ? 'Co-control enabled.' : 'Co-control disabled.');
     showToast(state.isCoControl ? 'Co-control enabled.' : 'Co-control disabled.', 'info');
 }
+
+// --- HOST ACTION CONTROLS (KICK & MUTE) ---
+window.kickUser = function(peerId) {
+    if (state.role !== 'host') return;
+    
+    const user = state.roomUsers.find(u => u.id === peerId);
+    const username = user ? user.username : 'User';
+    
+    const conn = state.connections.find(c => c.peer === peerId);
+    if (conn) {
+        conn.send({ type: 'kick' });
+        setTimeout(() => {
+            conn.close();
+            handleGuestDisconnect(peerId);
+        }, 300);
+    }
+    showToast(`Kicked ${username}`, 'info');
+};
+
+window.toggleMuteUser = function(peerId) {
+    if (state.role !== 'host') return;
+
+    const user = state.roomUsers.find(u => u.id === peerId);
+    if (user) {
+        user.isMuted = !user.isMuted;
+        
+        const conn = state.connections.find(c => c.peer === peerId);
+        if (conn) {
+            conn.send({ type: 'mute', muted: user.isMuted });
+        }
+        
+        updateUserListUI();
+        broadcastUserList();
+        
+        showToast(user.isMuted ? `Muted ${user.username}` : `Unmuted ${user.username}`, 'info');
+    }
+};
