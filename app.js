@@ -22,6 +22,7 @@ let state = {
     lastStreamTime: 0,
     hostFileName: '',
     hostPlaybackRate: 1.0,
+    hostSubtitle: null,      // { name, content } loaded by Host
     syncTimer: null,         // Timer for broadcasting sync state from Host
     driftCheckTimer: null,   // Timer for Guests to check drift from Host
     activeTab: 'users',      // 'users', 'chat', or 'settings'
@@ -890,20 +891,73 @@ function handleVideoFileSelect(e) {
     }
 }
 
+function applySubtitleContent(name, content, broadcast = true) {
+    if (!name || !content) {
+        elements.inputSubtitleFile.value = '';
+        elements.labelSubtitleFile.textContent = 'Select Subtitles...';
+        elements.btnClearSubtitle.classList.add('hidden');
+        elements.badgeSubtitles.classList.add('hidden');
+
+        const oldTrack = elements.mainVideo.querySelector('track');
+        if (oldTrack) oldTrack.remove();
+
+        if (state.role === 'host') {
+            state.hostSubtitle = null;
+            if (broadcast) {
+                state.connections.forEach(conn => {
+                    conn.send({
+                        type: 'subtitle_update',
+                        name: '',
+                        content: ''
+                    });
+                });
+            }
+        }
+        return;
+    }
+
+    elements.labelSubtitleFile.textContent = name;
+    elements.btnClearSubtitle.classList.remove('hidden');
+    elements.badgeSubtitles.classList.remove('hidden');
+
+    const blob = new Blob([content], { type: 'text/vtt;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const oldTrack = elements.mainVideo.querySelector('track');
+    if (oldTrack) oldTrack.remove();
+
+    const track = document.createElement('track');
+    track.kind = 'subtitles';
+    track.label = name;
+    track.srclang = 'tr';
+    track.src = url;
+    track.default = true;
+    
+    elements.mainVideo.appendChild(track);
+
+    if (state.role === 'host') {
+        state.hostSubtitle = { name, content };
+        if (broadcast) {
+            state.connections.forEach(conn => {
+                conn.send({
+                    type: 'subtitle_update',
+                    name: name,
+                    content: content
+                });
+            });
+        }
+    }
+}
+
 function handleSubtitleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
-
-    elements.labelSubtitleFile.textContent = file.name;
-    elements.btnClearSubtitle.classList.remove('hidden');
-    elements.badgeSubtitles.classList.remove('hidden');
 
     const reader = new FileReader();
     reader.onload = function(evt) {
         const arrayBuffer = evt.target.result;
         let content = '';
 
-        // Try decoding as UTF-8 first (fatal mode throws if invalid chars are present)
         try {
             const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
             content = utf8Decoder.decode(arrayBuffer);
@@ -913,41 +967,18 @@ function handleSubtitleFileSelect(e) {
             content = trDecoder.decode(arrayBuffer);
         }
         
-        // Convert SRT to VTT if necessary
         if (file.name.endsWith('.srt')) {
             content = srtToVtt(content);
         }
 
-        const blob = new Blob([content], { type: 'text/vtt;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-
-        // Remove old track
-        const oldTrack = elements.mainVideo.querySelector('track');
-        if (oldTrack) oldTrack.remove();
-
-        // Create new track
-        const track = document.createElement('track');
-        track.kind = 'subtitles';
-        track.label = file.name;
-        track.srclang = 'tr';
-        track.src = url;
-        track.default = true;
-        
-        elements.mainVideo.appendChild(track);
+        applySubtitleContent(file.name, content, true);
         showToast('Subtitles loaded successfully.', 'success');
     };
     reader.readAsArrayBuffer(file);
 }
 
-// Clear subtitles track
 function clearSubtitles() {
-    elements.inputSubtitleFile.value = '';
-    elements.labelSubtitleFile.textContent = 'Select Subtitles...';
-    elements.btnClearSubtitle.classList.add('hidden');
-    elements.badgeSubtitles.classList.add('hidden');
-
-    const oldTrack = elements.mainVideo.querySelector('track');
-    if (oldTrack) oldTrack.remove();
+    applySubtitleContent('', '', true);
     showToast('Subtitles removed.', 'info');
 }
 
@@ -1105,6 +1136,7 @@ function setupHostConnectionListener() {
                     hostUsername: state.username,
                     hostFileName: state.hostFileName,
                     hostDuration: elements.mainVideo.duration || 0,
+                    hostSubtitle: state.hostSubtitle,
                     isCoControl: state.isCoControl,
                     users: state.roomUsers
                 }
@@ -1304,6 +1336,11 @@ function handleIncomingDataFromHost(data) {
         state.hostDuration = data.state.hostDuration || 0;
         state.lastStreamTime = elements.mainVideo.currentTime;
 
+        // Apply host subtitle if present on initial join
+        if (data.state.hostSubtitle) {
+            applySubtitleContent(data.state.hostSubtitle.name, data.state.hostSubtitle.content, false);
+        }
+
         updateUserListUI();
         updateGuestControlsUI();
 
@@ -1322,6 +1359,14 @@ function handleIncomingDataFromHost(data) {
             syncPlayerToHost();
         }
     } 
+    else if (data.type === 'subtitle_update') {
+        applySubtitleContent(data.name, data.content, false);
+        if (data.name) {
+            showToast(`Host loaded subtitles: ${data.name}`, 'info');
+        } else {
+            showToast('Host removed subtitles.', 'info');
+        }
+    }
     else if (data.type === 'user_list') {
         state.roomUsers = data.users;
         updateUserListUI();
@@ -1711,8 +1756,11 @@ function leaveRoom() {
         isSyncing: false,
         hostPlaying: false,
         hostTime: 0,
+        hostDuration: 0,
+        lastStreamTime: 0,
         hostFileName: '',
         hostPlaybackRate: 1.0,
+        hostSubtitle: null,
         syncTimer: null,
         driftCheckTimer: null,
         activeTab: 'users',
