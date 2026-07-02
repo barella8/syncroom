@@ -24,6 +24,7 @@ let state = {
     hostPlaybackRate: 1.0,
     hostSubtitle: null,      // { name, content } loaded by Host
     currentSubtitle: null,   // Currently active { name, content } on local player
+    parsedCues: [],          // Parsed cue objects [{start, end, text}]
     syncTimer: null,         // Timer for broadcasting sync state from Host
     driftCheckTimer: null,   // Timer for Guests to check drift from Host
     activeTab: 'users',      // 'users', 'chat', or 'settings'
@@ -54,6 +55,8 @@ const elements = {
 
     // Video Player & Controls
     mainVideo: document.getElementById('main-video'),
+    subtitleOverlay: document.getElementById('subtitle-overlay'),
+    subtitleText: document.getElementById('subtitle-text'),
     dubbingAudio: document.getElementById('dubbing-audio'),
     videoPlaceholder: document.getElementById('video-placeholder'),
     hostFileInfo: document.getElementById('placeholder-host-file-info'),
@@ -287,6 +290,66 @@ function srtToVtt(srtText) {
     const header = "WEBVTT\n\n";
     const converted = srtText.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     return header + converted;
+}
+
+function parseTimeToSeconds(timeStr) {
+    if (!timeStr) return 0;
+    const parts = timeStr.trim().replace(',', '.').split(':');
+    let seconds = 0;
+    if (parts.length === 3) {
+        seconds += parseFloat(parts[0]) * 3600;
+        seconds += parseFloat(parts[1]) * 60;
+        seconds += parseFloat(parts[2]);
+    } else if (parts.length === 2) {
+        seconds += parseFloat(parts[0]) * 60;
+        seconds += parseFloat(parts[1]);
+    } else {
+        seconds += parseFloat(parts[0]) || 0;
+    }
+    return seconds;
+}
+
+function parseVttToCues(vttContent) {
+    const cues = [];
+    if (!vttContent) return cues;
+
+    const lines = vttContent.replace(/\r/g, '').split('\n');
+    let currentCue = null;
+    const timeRegex = /([0-9:.,]+)\s+-->\s+([0-9:.,]+)/;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line === 'WEBVTT' || line.startsWith('NOTE')) continue;
+        
+        const match = timeRegex.exec(line);
+        if (match) {
+            if (currentCue) {
+                cues.push(currentCue);
+            }
+            currentCue = {
+                start: parseTimeToSeconds(match[1]),
+                end: parseTimeToSeconds(match[2]),
+                text: ''
+            };
+        } else if (line === '') {
+            if (currentCue) {
+                cues.push(currentCue);
+                currentCue = null;
+            }
+        } else if (currentCue) {
+            if (currentCue.text) {
+                currentCue.text += '\n' + line;
+            } else {
+                currentCue.text = line;
+            }
+        }
+    }
+    
+    if (currentCue) {
+        cues.push(currentCue);
+    }
+    
+    return cues;
 }
 
 // --- EVENT LISTENERS REGISTRATION ---
@@ -727,6 +790,21 @@ function setupVideoControlsListeners() {
             elements.timeCurrent.textContent = formatTime(curTime);
             elements.timeDuration.textContent = formatTime(dur);
         }
+
+        // Custom subtitle overlay rendering based on absolute current time
+        if (state.parsedCues && state.parsedCues.length > 0) {
+            const activeCue = state.parsedCues.find(cue => curTime >= cue.start && curTime <= cue.end);
+            if (activeCue) {
+                elements.subtitleText.textContent = activeCue.text;
+                elements.subtitleOverlay.classList.remove('hidden');
+            } else {
+                elements.subtitleOverlay.classList.add('hidden');
+                elements.subtitleText.textContent = '';
+            }
+        } else {
+            elements.subtitleOverlay.classList.add('hidden');
+            elements.subtitleText.textContent = '';
+        }
     });
 
     video.addEventListener('durationchange', () => {
@@ -881,11 +959,6 @@ function handleVideoFileSelect(e) {
     elements.mainVideo.src = fileUrl;
     elements.videoPlaceholder.classList.add('hidden');
 
-    // Re-apply subtitle track if one is loaded (since setting src clears tracks)
-    if (state.currentSubtitle) {
-        applySubtitleContent(state.currentSubtitle.name, state.currentSubtitle.content, false);
-    }
-
     showToast(`Loaded "${file.name}"`, 'success');
 
     // If host, update everyone about the video metadata
@@ -900,13 +973,13 @@ function handleVideoFileSelect(e) {
 function applySubtitleContent(name, content, broadcast = true) {
     if (!name || !content) {
         state.currentSubtitle = null;
+        state.parsedCues = [];
         elements.inputSubtitleFile.value = '';
         elements.labelSubtitleFile.textContent = 'Select Subtitles...';
         elements.btnClearSubtitle.classList.add('hidden');
         elements.badgeSubtitles.classList.add('hidden');
-
-        const oldTrack = elements.mainVideo.querySelector('track');
-        if (oldTrack) oldTrack.remove();
+        elements.subtitleOverlay.classList.add('hidden');
+        elements.subtitleText.textContent = '';
 
         if (state.role === 'host') {
             state.hostSubtitle = null;
@@ -924,31 +997,10 @@ function applySubtitleContent(name, content, broadcast = true) {
     }
 
     state.currentSubtitle = { name, content };
+    state.parsedCues = parseVttToCues(content);
     elements.labelSubtitleFile.textContent = name;
     elements.btnClearSubtitle.classList.remove('hidden');
     elements.badgeSubtitles.classList.remove('hidden');
-
-    const blob = new Blob([content], { type: 'text/vtt;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-
-    const oldTrack = elements.mainVideo.querySelector('track');
-    if (oldTrack) oldTrack.remove();
-
-    const track = document.createElement('track');
-    track.kind = 'subtitles';
-    track.label = name;
-    track.srclang = 'tr';
-    track.src = url;
-    track.default = true;
-    
-    elements.mainVideo.appendChild(track);
-    
-    // Explicitly set mode to showing so browser renders it immediately
-    try {
-        track.track.mode = 'showing';
-    } catch(e) {
-        console.warn('Could not set track mode immediately:', e);
-    }
 
     if (state.role === 'host') {
         state.hostSubtitle = { name, content };
@@ -1278,11 +1330,6 @@ function handleJoinRoom() {
                 // Assign remote WebRTC stream to main video element
                 elements.mainVideo.srcObject = remoteStream;
                 elements.videoPlaceholder.classList.add('hidden');
-
-                // Re-apply subtitle track if one is loaded (since setting srcObject clears tracks)
-                if (state.currentSubtitle) {
-                    applySubtitleContent(state.currentSubtitle.name, state.currentSubtitle.content, false);
-                }
                 
                 // Show LIVE indicator for length
                 elements.timeDuration.textContent = 'LIVE';
