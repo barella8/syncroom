@@ -194,6 +194,11 @@
                             <!-- Actual Video Element -->
                             <video id="main-video" class="w-full h-full object-contain"></video>
 
+                            <!-- Custom Subtitle Overlay -->
+                            <div id="subtitle-overlay" class="absolute bottom-12 md:bottom-16 inset-x-4 text-center pointer-events-none z-20 flex justify-center items-end hidden">
+                                <span id="subtitle-text" class="px-3.5 py-1.5 md:px-5 md:py-2.5 rounded-xl bg-black/80 text-white font-sans text-sm md:text-lg lg:text-xl font-medium tracking-wide max-w-[90%] md:max-w-[80%] leading-relaxed whitespace-pre-line shadow-2xl border border-white/10"></span>
+                            </div>
+
                             <!-- Dubbing Audio Element (Hidden) -->
                             <audio id="dubbing-audio"></audio>
 
