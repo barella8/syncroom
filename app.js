@@ -23,6 +23,7 @@ let state = {
     hostFileName: '',
     hostPlaybackRate: 1.0,
     hostSubtitle: null,      // { name, content } loaded by Host
+    currentSubtitle: null,   // Currently active { name, content } on local player
     syncTimer: null,         // Timer for broadcasting sync state from Host
     driftCheckTimer: null,   // Timer for Guests to check drift from Host
     activeTab: 'users',      // 'users', 'chat', or 'settings'
@@ -880,6 +881,11 @@ function handleVideoFileSelect(e) {
     elements.mainVideo.src = fileUrl;
     elements.videoPlaceholder.classList.add('hidden');
 
+    // Re-apply subtitle track if one is loaded (since setting src clears tracks)
+    if (state.currentSubtitle) {
+        applySubtitleContent(state.currentSubtitle.name, state.currentSubtitle.content, false);
+    }
+
     showToast(`Loaded "${file.name}"`, 'success');
 
     // If host, update everyone about the video metadata
@@ -893,6 +899,7 @@ function handleVideoFileSelect(e) {
 
 function applySubtitleContent(name, content, broadcast = true) {
     if (!name || !content) {
+        state.currentSubtitle = null;
         elements.inputSubtitleFile.value = '';
         elements.labelSubtitleFile.textContent = 'Select Subtitles...';
         elements.btnClearSubtitle.classList.add('hidden');
@@ -916,6 +923,7 @@ function applySubtitleContent(name, content, broadcast = true) {
         return;
     }
 
+    state.currentSubtitle = { name, content };
     elements.labelSubtitleFile.textContent = name;
     elements.btnClearSubtitle.classList.remove('hidden');
     elements.badgeSubtitles.classList.remove('hidden');
@@ -934,6 +942,13 @@ function applySubtitleContent(name, content, broadcast = true) {
     track.default = true;
     
     elements.mainVideo.appendChild(track);
+    
+    // Explicitly set mode to showing so browser renders it immediately
+    try {
+        track.track.mode = 'showing';
+    } catch(e) {
+        console.warn('Could not set track mode immediately:', e);
+    }
 
     if (state.role === 'host') {
         state.hostSubtitle = { name, content };
@@ -1263,6 +1278,11 @@ function handleJoinRoom() {
                 // Assign remote WebRTC stream to main video element
                 elements.mainVideo.srcObject = remoteStream;
                 elements.videoPlaceholder.classList.add('hidden');
+
+                // Re-apply subtitle track if one is loaded (since setting srcObject clears tracks)
+                if (state.currentSubtitle) {
+                    applySubtitleContent(state.currentSubtitle.name, state.currentSubtitle.content, false);
+                }
                 
                 // Show LIVE indicator for length
                 elements.timeDuration.textContent = 'LIVE';
