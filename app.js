@@ -28,6 +28,7 @@ let state = {
     syncTimer: null,         // Timer for broadcasting sync state from Host
     driftCheckTimer: null,   // Timer for Guests to check drift from Host
     activeTab: 'users',      // 'users', 'chat', or 'settings'
+    subtitlePosition: 'bottom', // 'bottom', 'bottom-high', 'middle', 'top'
 };
 
 const SYNC_THRESHOLD = 2.0;  // Allowed drift in seconds before warning
@@ -99,6 +100,8 @@ const elements = {
     btnClearDubbing: document.getElementById('btn-clear-dubbing'),
     selectPlaybackSpeed: document.getElementById('select-playback-speed'),
     selectPlayerSize: document.getElementById('select-player-size'),
+    selectSubtitlePosition: document.getElementById('select-subtitle-position'),
+    quickSubtitlePosition: document.getElementById('quick-subtitle-position'),
 
     // Sidebar Panels & Tab Switches
     tabUsers: document.getElementById('tab-users'),
@@ -411,6 +414,14 @@ function setupEventListeners() {
         handlePlayerSizeChange();
     });
 
+    elements.selectSubtitlePosition.addEventListener('change', () => {
+        handleSubtitlePositionChange(elements.selectSubtitlePosition.value);
+    });
+
+    elements.quickSubtitlePosition.addEventListener('change', () => {
+        handleSubtitlePositionChange(elements.quickSubtitlePosition.value);
+    });
+
     // Close settings popup when clicking outside
     document.addEventListener('click', (e) => {
         if (elements.playerSettingsPopup && !elements.playerSettingsPopup.classList.contains('hidden')) {
@@ -530,6 +541,41 @@ function handlePlayerSizeChange() {
     }
 
     showToast(`Resolution scale set to ${size === 'max' ? 'Cinematic' : size}.`, 'info');
+}
+
+function handleSubtitlePositionChange(pos) {
+    state.subtitlePosition = pos;
+
+    if (elements.selectSubtitlePosition) {
+        elements.selectSubtitlePosition.value = pos;
+    }
+    if (elements.quickSubtitlePosition) {
+        elements.quickSubtitlePosition.value = pos;
+    }
+
+    updateSubtitlePositionUI(pos);
+}
+
+function updateSubtitlePositionUI(pos) {
+    const overlay = elements.subtitleOverlay;
+    if (!overlay) return;
+
+    overlay.classList.remove(
+        'items-end', 'items-center', 'items-start',
+        'pb-8', 'md:pb-12',
+        'pb-20', 'md:pb-24',
+        'pt-8', 'md:pt-12'
+    );
+
+    if (pos === 'bottom') {
+        overlay.classList.add('items-end', 'pb-8', 'md:pb-12');
+    } else if (pos === 'bottom-high') {
+        overlay.classList.add('items-end', 'pb-20', 'md:pb-24');
+    } else if (pos === 'middle') {
+        overlay.classList.add('items-center');
+    } else if (pos === 'top') {
+        overlay.classList.add('items-start', 'pt-8', 'md:pt-12');
+    }
 }
 
 // --- KEYBOARD BINDS (SHORTCUTS) ---
@@ -1795,6 +1841,13 @@ function leaveRoom() {
     if (elements.quickPlayerSize) {
         elements.quickPlayerSize.value = 'max';
     }
+    if (elements.selectSubtitlePosition) {
+        elements.selectSubtitlePosition.value = 'bottom';
+    }
+    if (elements.quickSubtitlePosition) {
+        elements.quickSubtitlePosition.value = 'bottom';
+    }
+    updateSubtitlePositionUI('bottom');
 
     const videoWrapper = elements.mainVideo.parentElement;
     if (videoWrapper) {
